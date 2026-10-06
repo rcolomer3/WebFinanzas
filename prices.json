@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-06T08:30:09+02:00",
+  "updatedAt": "2026-10-06T08:30:51+02:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
@@ -10,9 +10,9 @@
     },
     "IE00BYX5NX33": {
       "name": "Fidelity MSCI World Index Fund EUR P Acc",
-      "price": 14.40,
-      "priceDate": "2026-10-05",
-      "source": "MarketScreener - Börse Stuttgart"
+      "price": 14.491,
+      "priceDate": "2026-10-02",
+      "source": "Investing.com - NAV"
     },
     "IE0031786696": {
       "name": "Vanguard Emerging Markets Stock Index Fund EUR Acc",
