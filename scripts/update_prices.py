@@ -15,10 +15,7 @@ TZ_MADRID = ZoneInfo("Europe/Madrid")
 TZ_XETRA = ZoneInfo("Europe/Berlin")
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154 Safari/537.36"
-    ),
+    "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/154 Safari/537.36",
     "Accept-Language": "en-GB,en;q=0.9,es;q=0.8",
 }
 
@@ -36,8 +33,7 @@ def request(url, *, params=None, timeout=20):
 
 
 def page_text(url):
-    html = request(url).text
-    return BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
+    return BeautifulSoup(request(url).text, "html.parser").get_text(" ", strip=True)
 
 
 def parse_number(value):
@@ -53,26 +49,21 @@ def parse_number(value):
 
 
 def load_prices():
-    with PRICES_FILE.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    return json.loads(PRICES_FILE.read_text(encoding="utf-8"))
 
 
 def save_prices(data):
-    with PRICES_FILE.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
-        fh.write("\n")
-
-
-def is_newer_or_equal(new_date, old_date):
-    if not old_date:
-        return True
-    return new_date >= old_date
+    PRICES_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def apply_asset(data, key, *, price, price_date, source):
     asset = data["assets"][key]
-    if not is_newer_or_equal(price_date, asset.get("priceDate")):
-        print(f"{key}: se conserva el dato existente porque la fuente devolvió una fecha más antigua")
+    old_date = asset.get("priceDate")
+    if old_date and price_date < old_date:
+        print(f"{key}: source returned an older date; keeping existing value")
         return False
     asset["price"] = round(float(price), 8)
     asset["priceDate"] = price_date
@@ -95,7 +86,7 @@ def fetch_bitcoin():
     return price, date, "CoinGecko", change
 
 
-def parse_investing_fidelity(text):
+def parse_investing_nav(text):
     candidates = []
 
     for date_text, value in re.findall(
@@ -103,8 +94,7 @@ def parse_investing_fidelity(text):
         text,
     ):
         try:
-            date = datetime.strptime(date_text, "%b %d, %Y").date()
-            candidates.append((date, parse_number(value)))
+            candidates.append((datetime.strptime(date_text, "%b %d, %Y").date(), parse_number(value)))
         except ValueError:
             pass
 
@@ -113,13 +103,12 @@ def parse_investing_fidelity(text):
         text,
     ):
         try:
-            date = datetime.strptime(date_text, "%d.%m.%Y").date()
-            candidates.append((date, parse_number(value)))
+            candidates.append((datetime.strptime(date_text, "%d.%m.%Y").date(), parse_number(value)))
         except ValueError:
             pass
 
     if not candidates:
-        raise RuntimeError("No se pudo localizar el NAV de Fidelity en la página")
+        raise RuntimeError("No NAV rows found")
 
     date, price = max(candidates, key=lambda item: item[0])
     return price, date.isoformat()
@@ -134,7 +123,7 @@ def fetch_fidelity():
     errors = []
     for url in urls:
         try:
-            price, date = parse_investing_fidelity(page_text(url))
+            price, date = parse_investing_nav(page_text(url))
             return price, date, "Investing.com - NAV"
         except Exception as exc:
             errors.append(f"{url}: {exc}")
@@ -143,62 +132,39 @@ def fetch_fidelity():
 
 MONTHS_EN = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
 MONTHS_ES = {
-    "ene": 1,
-    "feb": 2,
-    "mar": 3,
-    "abr": 4,
-    "may": 5,
-    "jun": 6,
-    "jul": 7,
-    "ago": 8,
-    "sept": 9,
-    "sep": 9,
-    "oct": 10,
-    "nov": 11,
-    "dic": 12,
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
+    "jul": 7, "ago": 8, "sept": 9, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
 }
 
 
 def parse_vanguard_official(text):
-    section = text
-    if "Historical Prices" in section:
-        section = section.split("Historical Prices", 1)[1]
-        if "Distribution history" in section:
-            section = section.split("Distribution history", 1)[0]
-
     candidates = []
+
+    section = text.split("Historical Prices", 1)[-1]
+    if "Distribution history" in section:
+        section = section.split("Distribution history", 1)[0]
     for date_text, value in re.findall(
         rf"(\d{{1,2}}\s+(?:{MONTHS_EN})\s+\d{{4}})\s+€?\s*([0-9]+(?:[.,][0-9]+)?)",
         section,
     ):
         try:
-            date = datetime.strptime(date_text, "%d %b %Y").date()
-            candidates.append((date, parse_number(value)))
+            candidates.append((datetime.strptime(date_text, "%d %b %Y").date(), parse_number(value)))
         except ValueError:
             pass
 
-    if candidates:
-        date, price = max(candidates, key=lambda item: item[0])
-        return price, date.isoformat()
-
-    # Spanish Vanguard page fallback.
-    section = text
-    if "Precios históricos" in section:
-        section = section.split("Precios históricos", 1)[1]
-        if "Historial de distribución" in section:
-            section = section.split("Historial de distribución", 1)[0]
-
+    section = text.split("Precios históricos", 1)[-1]
+    if "Historial de distribución" in section:
+        section = section.split("Historial de distribución", 1)[0]
     for day, month, year, value in re.findall(
         r"(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sept|sep|oct|nov|dic)\.?\s+(\d{4})\s+([0-9]+(?:[.,][0-9]+)?)\s*€",
         section,
         flags=re.IGNORECASE,
     ):
-        month_num = MONTHS_ES[month.lower()]
-        date = datetime(int(year), month_num, int(day)).date()
+        date = datetime(int(year), MONTHS_ES[month.lower()], int(day)).date()
         candidates.append((date, parse_number(value)))
 
     if not candidates:
-        raise RuntimeError("No se pudo localizar el NAV oficial de Vanguard")
+        raise RuntimeError("No official Vanguard NAV rows found")
 
     date, price = max(candidates, key=lambda item: item[0])
     return price, date.isoformat()
@@ -217,51 +183,81 @@ def fetch_vanguard():
         except Exception as exc:
             errors.append(f"{url}: {exc}")
 
-    # Reliable fallback if Vanguard's site blocks the GitHub runner.
     try:
-        text = page_text("https://uk.investing.com/funds/vanguard-em-stock-inst-eur-acc-historical-data")
-        candidates = []
-        for date_text, value in re.findall(
-            r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
-            text,
-        ):
-            date = datetime.strptime(date_text, "%b %d, %Y").date()
-            candidates.append((date, parse_number(value)))
-        if candidates:
-            date, price = max(candidates, key=lambda item: item[0])
-            return price, date.isoformat(), "Investing.com - NAV"
+        price, date = parse_investing_nav(
+            page_text("https://uk.investing.com/funds/vanguard-em-stock-inst-eur-acc-historical-data")
+        )
+        return price, date, "Investing.com - NAV"
     except Exception as exc:
         errors.append(f"Investing fallback: {exc}")
 
     raise RuntimeError(" | ".join(errors))
 
 
-def fetch_gold_xetra():
+def parse_marketscreener_gold(text):
+    candidates = []
+    pattern = r"(\d{2}/\d{2}/(?:\d{2}|\d{4}))\s+([0-9]+(?:[.,][0-9]+)?)\s*(?:€|EUR)"
+    for date_text, value in re.findall(pattern, text):
+        for fmt in ("%d/%m/%Y", "%d/%m/%y"):
+            try:
+                date = datetime.strptime(date_text, fmt).date()
+                candidates.append((date, parse_number(value)))
+                break
+            except ValueError:
+                pass
+
+    if not candidates:
+        raise RuntimeError("No Xetra PPFB quote rows found on MarketScreener")
+
+    date, price = max(candidates, key=lambda item: item[0])
+    return price, date.isoformat()
+
+
+def fetch_gold_yahoo():
     payload = request(
         "https://query1.finance.yahoo.com/v8/finance/chart/PPFB.DE",
         params={"interval": "1d", "range": "10d", "events": "history"},
     ).json()
-
     result = payload["chart"]["result"][0]
-    timestamps = result["timestamp"]
-    closes = result["indicators"]["quote"][0]["close"]
-    points = [(ts, close) for ts, close in zip(timestamps, closes) if close is not None]
+    points = [
+        (ts, close)
+        for ts, close in zip(result["timestamp"], result["indicators"]["quote"][0]["close"])
+        if close is not None
+    ]
     if not points:
-        raise RuntimeError("Yahoo Finance no devolvió cierres para PPFB.DE")
-
+        raise RuntimeError("Yahoo Finance returned no PPFB.DE closes")
     timestamp, price = points[-1]
     date = datetime.fromtimestamp(timestamp, TZ_XETRA).date().isoformat()
     change = None
     if len(points) >= 2 and points[-2][1]:
-        previous = float(points[-2][1])
-        change = (float(price) / previous - 1.0) * 100.0
+        change = (float(price) / float(points[-2][1]) - 1.0) * 100.0
     return float(price), date, "Yahoo Finance - Xetra (PPFB.DE)", change
+
+
+def fetch_gold_xetra():
+    errors = []
+    urls = [
+        "https://es.marketscreener.com/cotizacion/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/cotizaciones/",
+        "https://www.marketscreener.com/quote/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/quotes/",
+    ]
+    for url in urls:
+        try:
+            price, date = parse_marketscreener_gold(page_text(url))
+            return price, date, "MarketScreener - Xetra"
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+
+    try:
+        return fetch_gold_yahoo()
+    except Exception as exc:
+        errors.append(f"Yahoo fallback: {exc}")
+
+    raise RuntimeError(" | ".join(errors))
 
 
 def main():
     data = load_prices()
     results = {}
-
     fetchers = {
         "BTC": fetch_bitcoin,
         "IE00BYX5NX33": fetch_fidelity,
@@ -273,13 +269,7 @@ def main():
         try:
             fetched = fetcher()
             price, price_date, source = fetched[:3]
-            changed = apply_asset(
-                data,
-                key,
-                price=price,
-                price_date=price_date,
-                source=source,
-            )
+            changed = apply_asset(data, key, price=price, price_date=price_date, source=source)
             results[key] = {
                 "status": "updated" if changed else "kept",
                 "price": data["assets"][key]["price"],
@@ -289,7 +279,6 @@ def main():
             if len(fetched) > 3 and fetched[3] is not None:
                 results[key]["dailyChangePct"] = round(float(fetched[3]), 4)
         except Exception as exc:
-            # Never replace a valid value with a doubtful one.
             existing = data["assets"][key]
             results[key] = {
                 "status": "kept_after_error",
@@ -301,7 +290,6 @@ def main():
 
     data["updatedAt"] = datetime.now(TZ_MADRID).isoformat(timespec="seconds")
     save_prices(data)
-
     print(json.dumps({"updatedAt": data["updatedAt"], "assets": results}, ensure_ascii=False, indent=2))
 
 
