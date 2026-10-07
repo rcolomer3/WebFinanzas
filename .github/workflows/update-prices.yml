@@ -1,6 +1,12 @@
 name: Update asset prices
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/update_prices.py"
+      - ".github/workflows/update-prices.yml"
   schedule:
     - cron: "10 8 * * *"
       timezone: "Europe/Madrid"
