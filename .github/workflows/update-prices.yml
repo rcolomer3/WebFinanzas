@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "scripts/update_prices.py"
+      - "scripts/*.py"
       - ".github/workflows/update-prices.yml"
   schedule:
     - cron: "10 8 * * *"
@@ -37,8 +37,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade requests beautifulsoup4
 
-      - name: Update prices.json
+      - name: Update main assets
         run: python scripts/update_prices.py
+
+      - name: Update gold from Stooq fallback
+        run: python scripts/update_gold_stooq.py
 
       - name: Show resulting prices.json
         run: cat prices.json
@@ -69,6 +72,7 @@ jobs:
               git rebase --abort || true
               git reset --hard origin/main
               python scripts/update_prices.py
+              python scripts/update_gold_stooq.py
               git add prices.json
 
               if git diff --cached --quiet; then
