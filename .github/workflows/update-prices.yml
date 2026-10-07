@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -44,6 +46,8 @@ jobs:
       - name: Commit and push changes
         shell: bash
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -55,4 +59,34 @@ jobs:
           fi
 
           git commit -m "Update asset prices"
-          git push origin HEAD:main
+
+          for attempt in 1 2 3; do
+            echo "Push attempt ${attempt}/3"
+            git fetch origin main
+
+            if ! git rebase origin/main; then
+              echo "Rebase conflict. Rebuilding prices.json from latest main..."
+              git rebase --abort || true
+              git reset --hard origin/main
+              python scripts/update_prices.py
+              git add prices.json
+
+              if git diff --cached --quiet; then
+                echo "No changes remain after rebuilding"
+                exit 0
+              fi
+
+              git commit -m "Update asset prices"
+            fi
+
+            if git push origin HEAD:main; then
+              echo "prices.json pushed successfully"
+              exit 0
+            fi
+
+            echo "Push failed because main changed again; retrying..."
+            sleep 2
+          done
+
+          echo "Failed to push prices.json after 3 attempts"
+          exit 1
