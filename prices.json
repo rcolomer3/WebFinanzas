@@ -1,11 +1,11 @@
 {
-  "updatedAt": "2026-10-07T20:25:42+02:00",
+  "updatedAt": "2026-10-08T08:27:17+02:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
       "name": "Bitcoin",
-      "price": 74338.0,
-      "priceDate": "2026-10-07",
+      "price": 73796.0,
+      "priceDate": "2026-10-08",
       "source": "CoinGecko"
     },
     "IE00BYX5NX33": {
@@ -16,8 +16,8 @@
     },
     "IE0031786696": {
       "name": "Vanguard Emerging Markets Stock Index Fund EUR Acc",
-      "price": 326.3132,
-      "priceDate": "2026-10-06",
+      "price": 324.8987,
+      "priceDate": "2026-10-07",
       "source": "Vanguard - NAV"
     },
     "IE00B4ND3602": {
