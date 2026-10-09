@@ -89,31 +89,26 @@ def fetch_bitcoin():
 
 
 def parse_investing_nav(text):
+    # Parse actual historical rows (date immediately followed by NAV).
+    # Avoid selecting unrelated figures from a fund's summary/header.
     candidates = []
-
-    for date_text, value in re.findall(
-        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
-        text,
-    ):
-        try:
-            candidates.append((datetime.strptime(date_text, "%b %d, %Y").date(), parse_number(value)))
-        except ValueError:
-            pass
-
-    for date_text, value in re.findall(
-        r"(\d{2}\.\d{2}\.\d{4})\s+([0-9]+(?:,[0-9]+)?)",
-        text,
-    ):
-        try:
-            candidates.append((datetime.strptime(date_text, "%d.%m.%Y").date(), parse_number(value)))
-        except ValueError:
-            pass
-
+    patterns = (
+        (r"\\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d{1,2},\\s+\\d{4})\\s+([0-9]+(?:\\.[0-9]+)?)", "%b %d, %Y"),
+        (r"\\b(\\d{1,2}\\.\\d{1,2}\\.\\d{4})\\s+([0-9]+(?:[.,][0-9]+)?)", "%d.%m.%Y"),
+    )
+    for pattern, fmt in patterns:
+        for date_text, value in re.findall(pattern, text, flags=re.IGNORECASE):
+            try:
+                day = datetime.strptime(date_text, fmt).date()
+                price = parse_number(value)
+                if day <= datetime.now(TZ_MADRID).date() and 0 < price < 1000000:
+                    candidates.append((day, price))
+            except ValueError:
+                continue
     if not candidates:
-        raise RuntimeError("No NAV rows found")
-
-    date, price = max(candidates, key=lambda item: item[0])
-    return price, date.isoformat()
+        raise RuntimeError("No valid dated NAV rows found")
+    day, price = max(candidates, key=lambda item: item[0])
+    return price, day.isoformat()
 
 
 def fetch_fidelity():
@@ -123,12 +118,16 @@ def fetch_fidelity():
         "https://it.investing.com/funds/ie00byx5nx33-historical-data",
     ]
     errors = []
+    candidates = []
     for url in urls:
         try:
-            price, date = parse_investing_nav(page_text(url))
-            return price, date, "Investing.com - NAV"
+            price, day = parse_investing_nav(page_text(url))
+            candidates.append((day, price, "Investing.com - NAV"))
         except Exception as exc:
             errors.append(f"{url}: {exc}")
+    if candidates:
+        day, price, source = max(candidates, key=lambda item: item[0])
+        return price, day, source
     raise RuntimeError(" | ".join(errors))
 
 
