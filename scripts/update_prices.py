@@ -93,8 +93,8 @@ def parse_investing_nav(text):
     # Avoid selecting unrelated figures from a fund's summary/header.
     candidates = []
     patterns = (
-        (r"\\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d{1,2},\\s+\\d{4})\\s+([0-9]+(?:\\.[0-9]+)?)", "%b %d, %Y"),
-        (r"\\b(\\d{1,2}\\.\\d{1,2}\\.\\d{4})\\s+([0-9]+(?:[.,][0-9]+)?)", "%d.%m.%Y"),
+        (r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)", "%b %d, %Y"),
+        (r"\b(\d{1,2}\.\d{1,2}\.\d{4})\s+([0-9]+(?:[.,][0-9]+)?)", "%d.%m.%Y"),
     )
     for pattern, fmt in patterns:
         for date_text, value in re.findall(pattern, text, flags=re.IGNORECASE):
