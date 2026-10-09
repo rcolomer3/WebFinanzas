@@ -65,6 +65,8 @@ def apply_asset(data, key, *, price, price_date, source):
     if old_date and price_date < old_date:
         print(f"{key}: source returned an older date; keeping existing value")
         return False
+    if not (0 < float(price) < 1_000_000):
+        raise ValueError(f"{key}: invalid price {price}")
     asset["price"] = round(float(price), 8)
     asset["priceDate"] = price_date
     asset["source"] = source
@@ -87,31 +89,26 @@ def fetch_bitcoin():
 
 
 def parse_investing_nav(text):
+    # Parse actual historical rows (date immediately followed by NAV).
+    # Avoid selecting unrelated figures from a fund's summary/header.
     candidates = []
-
-    for date_text, value in re.findall(
-        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
-        text,
-    ):
-        try:
-            candidates.append((datetime.strptime(date_text, "%b %d, %Y").date(), parse_number(value)))
-        except ValueError:
-            pass
-
-    for date_text, value in re.findall(
-        r"(\d{2}\.\d{2}\.\d{4})\s+([0-9]+(?:,[0-9]+)?)",
-        text,
-    ):
-        try:
-            candidates.append((datetime.strptime(date_text, "%d.%m.%Y").date(), parse_number(value)))
-        except ValueError:
-            pass
-
+    patterns = (
+        (r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)", "%b %d, %Y"),
+        (r"\b(\d{1,2}\.\d{1,2}\.\d{4})\s+([0-9]+(?:[.,][0-9]+)?)", "%d.%m.%Y"),
+    )
+    for pattern, fmt in patterns:
+        for date_text, value in re.findall(pattern, text, flags=re.IGNORECASE):
+            try:
+                day = datetime.strptime(date_text, fmt).date()
+                price = parse_number(value)
+                if day <= datetime.now(TZ_MADRID).date() and 0 < price < 1000000:
+                    candidates.append((day, price))
+            except ValueError:
+                continue
     if not candidates:
-        raise RuntimeError("No NAV rows found")
-
-    date, price = max(candidates, key=lambda item: item[0])
-    return price, date.isoformat()
+        raise RuntimeError("No valid dated NAV rows found")
+    day, price = max(candidates, key=lambda item: item[0])
+    return price, day.isoformat()
 
 
 def fetch_fidelity():
@@ -121,12 +118,16 @@ def fetch_fidelity():
         "https://it.investing.com/funds/ie00byx5nx33-historical-data",
     ]
     errors = []
+    candidates = []
     for url in urls:
         try:
-            price, date = parse_investing_nav(page_text(url))
-            return price, date, "Investing.com - NAV"
+            price, day = parse_investing_nav(page_text(url))
+            candidates.append((day, price, "Investing.com - NAV"))
         except Exception as exc:
             errors.append(f"{url}: {exc}")
+    if candidates:
+        day, price, source = max(candidates, key=lambda item: item[0])
+        return price, day, source
     raise RuntimeError(" | ".join(errors))
 
 
@@ -227,6 +228,7 @@ def fetch_gold_yahoo():
     if not points:
         raise RuntimeError("Yahoo Finance returned no PPFB.DE closes")
     timestamp, price = points[-1]
+    # Yahoo daily timestamps may be anchored at session open; use exchange-local date.
     date = datetime.fromtimestamp(timestamp, TZ_XETRA).date().isoformat()
     change = None
     if len(points) >= 2 and points[-2][1]:
@@ -235,7 +237,12 @@ def fetch_gold_yahoo():
 
 
 def fetch_gold_xetra():
+    # Prefer the structured Xetra EUR time series over scraping unstructured pages.
     errors = []
+    try:
+        return fetch_gold_yahoo()
+    except Exception as exc:
+        errors.append(f"Yahoo primary: {exc}")
     urls = [
         "https://es.marketscreener.com/cotizacion/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/cotizaciones/",
         "https://www.marketscreener.com/quote/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/quotes/",
@@ -246,11 +253,6 @@ def fetch_gold_xetra():
             return price, date, "MarketScreener - Xetra"
         except Exception as exc:
             errors.append(f"{url}: {exc}")
-
-    try:
-        return fetch_gold_yahoo()
-    except Exception as exc:
-        errors.append(f"Yahoo fallback: {exc}")
 
     raise RuntimeError(" | ".join(errors))
 
@@ -288,7 +290,11 @@ def main():
                 "error": str(exc),
             }
 
+    # updatedAt indicates the run, not that every asset has a fresh quote.
     data["updatedAt"] = datetime.now(TZ_MADRID).isoformat(timespec="seconds")
+    failed = [key for key, result in results.items() if result["status"] == "kept_after_error"]
+    if failed:
+        print("WARNING: prices not refreshed for: " + ", ".join(failed))
     save_prices(data)
     print(json.dumps({"updatedAt": data["updatedAt"], "assets": results}, ensure_ascii=False, indent=2))
 
