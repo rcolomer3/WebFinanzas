@@ -65,6 +65,8 @@ def apply_asset(data, key, *, price, price_date, source):
     if old_date and price_date < old_date:
         print(f"{key}: source returned an older date; keeping existing value")
         return False
+    if not (0 < float(price) < 1_000_000):
+        raise ValueError(f"{key}: invalid price {price}")
     asset["price"] = round(float(price), 8)
     asset["priceDate"] = price_date
     asset["source"] = source
@@ -227,6 +229,7 @@ def fetch_gold_yahoo():
     if not points:
         raise RuntimeError("Yahoo Finance returned no PPFB.DE closes")
     timestamp, price = points[-1]
+    # Yahoo daily timestamps may be anchored at session open; use exchange-local date.
     date = datetime.fromtimestamp(timestamp, TZ_XETRA).date().isoformat()
     change = None
     if len(points) >= 2 and points[-2][1]:
@@ -235,7 +238,12 @@ def fetch_gold_yahoo():
 
 
 def fetch_gold_xetra():
+    # Prefer the structured Xetra EUR time series over scraping unstructured pages.
     errors = []
+    try:
+        return fetch_gold_yahoo()
+    except Exception as exc:
+        errors.append(f"Yahoo primary: {exc}")
     urls = [
         "https://es.marketscreener.com/cotizacion/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/cotizaciones/",
         "https://www.marketscreener.com/quote/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/quotes/",
@@ -246,11 +254,6 @@ def fetch_gold_xetra():
             return price, date, "MarketScreener - Xetra"
         except Exception as exc:
             errors.append(f"{url}: {exc}")
-
-    try:
-        return fetch_gold_yahoo()
-    except Exception as exc:
-        errors.append(f"Yahoo fallback: {exc}")
 
     raise RuntimeError(" | ".join(errors))
 
@@ -288,7 +291,11 @@ def main():
                 "error": str(exc),
             }
 
+    # updatedAt indicates the run, not that every asset has a fresh quote.
     data["updatedAt"] = datetime.now(TZ_MADRID).isoformat(timespec="seconds")
+    failed = [key for key, result in results.items() if result["status"] == "kept_after_error"]
+    if failed:
+        print("WARNING: prices not refreshed for: " + ", ".join(failed))
     save_prices(data)
     print(json.dumps({"updatedAt": data["updatedAt"], "assets": results}, ensure_ascii=False, indent=2))
 
