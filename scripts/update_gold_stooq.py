@@ -80,7 +80,7 @@ def main():
         return
 
     price, price_date, source = fetched
-    if asset.get("priceDate") and price_date < asset["priceDate"]:
+    if asset.get("priceDate") and price_date <= asset["priceDate"]:
         print(f"Gold source returned older date {price_date}; keeping {asset['priceDate']}")
         return
 
