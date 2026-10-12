@@ -8,9 +8,7 @@ on:
       - "scripts/*.py"
       - ".github/workflows/update-prices.yml"
   schedule:
-    - cron: "17 8 * * *"
-      timezone: "Europe/Madrid"
-    - cron: "47 8 * * *"
+    - cron: "17 8,10,12,14,16 * * *"
       timezone: "Europe/Madrid"
   workflow_dispatch:
 
