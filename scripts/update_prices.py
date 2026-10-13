@@ -16,7 +16,7 @@ TZ_XETRA = ZoneInfo("Europe/Berlin")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/154 Safari/537.36",
-    "Accept-Language": "en-GB,en;q=0.9,es;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9,es;q=0.8,de;q=0.7",
 }
 
 
@@ -65,6 +65,8 @@ def apply_asset(data, key, *, price, price_date, source):
     if old_date and price_date < old_date:
         print(f"{key}: source returned an older date; keeping existing value")
         return False
+    if not (0 < float(price) < 1_000_000):
+        raise ValueError(f"{key}: invalid price {price}")
     asset["price"] = round(float(price), 8)
     asset["priceDate"] = price_date
     asset["source"] = source
@@ -88,45 +90,72 @@ def fetch_bitcoin():
 
 def parse_investing_nav(text):
     candidates = []
-
-    for date_text, value in re.findall(
-        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
-        text,
-    ):
-        try:
-            candidates.append((datetime.strptime(date_text, "%b %d, %Y").date(), parse_number(value)))
-        except ValueError:
-            pass
-
-    for date_text, value in re.findall(
-        r"(\d{2}\.\d{2}\.\d{4})\s+([0-9]+(?:,[0-9]+)?)",
-        text,
-    ):
-        try:
-            candidates.append((datetime.strptime(date_text, "%d.%m.%Y").date(), parse_number(value)))
-        except ValueError:
-            pass
-
+    patterns = (
+        (r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)", "%b %d, %Y"),
+        (r"\b(\d{1,2}\.\d{1,2}\.\d{4})\s+([0-9]+(?:[.,][0-9]+)?)", "%d.%m.%Y"),
+    )
+    today = datetime.now(TZ_MADRID).date()
+    for pattern, fmt in patterns:
+        for date_text, value in re.findall(pattern, text, flags=re.IGNORECASE):
+            try:
+                day = datetime.strptime(date_text, fmt).date()
+                price = parse_number(value)
+                if day <= today and 0 < price < 1_000_000:
+                    candidates.append((day, price))
+            except ValueError:
+                continue
     if not candidates:
-        raise RuntimeError("No NAV rows found")
+        raise RuntimeError("No valid dated NAV rows found")
+    day, price = max(candidates, key=lambda item: item[0])
+    return price, day.isoformat()
 
-    date, price = max(candidates, key=lambda item: item[0])
-    return price, date.isoformat()
+
+def parse_ft_fidelity_nav(text):
+    candidates = []
+    patterns = (
+        (r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)", "%b %d, %Y"),
+        (r"\b(\d{1,2}/\d{1,2}/\d{4})\s+([0-9]+(?:\.[0-9]+)?)", "%m/%d/%Y"),
+    )
+    today = datetime.now(TZ_MADRID).date()
+    for pattern, fmt in patterns:
+        for date_text, value in re.findall(pattern, text, flags=re.IGNORECASE):
+            try:
+                day = datetime.strptime(date_text, fmt).date()
+                price = parse_number(value)
+                if day <= today and 0 < price < 1_000_000:
+                    candidates.append((day, price))
+            except ValueError:
+                continue
+    if not candidates:
+        raise RuntimeError("No dated Fidelity NAV rows found on FT Markets")
+    day, price = max(candidates, key=lambda item: item[0])
+    return price, day.isoformat()
 
 
 def fetch_fidelity():
-    urls = [
+    errors = []
+    ft_url = "https://markets.ft.com/data/funds/tearsheet/historical?s=IE00BYX5NX33:EUR"
+    try:
+        price, day = parse_ft_fidelity_nav(page_text(ft_url))
+        return price, day, "FT Markets - NAV"
+    except Exception as exc:
+        errors.append(f"FT Markets: {exc}")
+
+    investing_urls = [
         "https://uk.investing.com/funds/ie00byx5nx33-historical-data",
         "https://es.investing.com/funds/ie00byx5nx33-historical-data",
         "https://it.investing.com/funds/ie00byx5nx33-historical-data",
     ]
-    errors = []
-    for url in urls:
+    candidates = []
+    for url in investing_urls:
         try:
-            price, date = parse_investing_nav(page_text(url))
-            return price, date, "Investing.com - NAV"
+            price, day = parse_investing_nav(page_text(url))
+            candidates.append((day, price))
         except Exception as exc:
             errors.append(f"{url}: {exc}")
+    if candidates:
+        day, price = max(candidates, key=lambda item: item[0])
+        return price, day, "Investing.com - NAV"
     raise RuntimeError(" | ".join(errors))
 
 
@@ -194,6 +223,36 @@ def fetch_vanguard():
     raise RuntimeError(" | ".join(errors))
 
 
+def parse_goyax_gold(text):
+    match = re.search(
+        r"\bXetra\s+([0-9]+(?:[.,][0-9]+)?)\s*EUR\s+(\d{1,2}:\d{2}|\d{1,2}\.\d{1,2}\.)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        raise RuntimeError("No Xetra quote row found on Goyax")
+
+    price = parse_number(match.group(1))
+    quote_stamp = match.group(2)
+    today = datetime.now(TZ_XETRA).date()
+
+    if ":" in quote_stamp:
+        day = today
+    else:
+        day_number, month_number = [int(part) for part in quote_stamp.rstrip(".").split(".")]
+        day = datetime(today.year, month_number, day_number).date()
+        if day > today:
+            day = datetime(today.year - 1, month_number, day_number).date()
+
+    return price, day.isoformat()
+
+
+def fetch_gold_goyax():
+    url = "https://www.goyax.de/etcs/IE00B4ND3602/ishares-physical-metals-plc/?boerse=xet"
+    price, day = parse_goyax_gold(page_text(url))
+    return price, day, "Goyax - Xetra"
+
+
 def parse_marketscreener_gold(text):
     candidates = []
     pattern = r"(\d{2}/\d{2}/(?:\d{2}|\d{4}))\s+([0-9]+(?:[.,][0-9]+)?)\s*(?:€|EUR)"
@@ -214,28 +273,39 @@ def parse_marketscreener_gold(text):
 
 
 def fetch_gold_yahoo():
-    payload = request(
-        "https://query1.finance.yahoo.com/v8/finance/chart/PPFB.DE",
-        params={"interval": "1d", "range": "10d", "events": "history"},
-    ).json()
-    result = payload["chart"]["result"][0]
-    points = [
-        (ts, close)
-        for ts, close in zip(result["timestamp"], result["indicators"]["quote"][0]["close"])
-        if close is not None
-    ]
-    if not points:
-        raise RuntimeError("Yahoo Finance returned no PPFB.DE closes")
-    timestamp, price = points[-1]
-    date = datetime.fromtimestamp(timestamp, TZ_XETRA).date().isoformat()
-    change = None
-    if len(points) >= 2 and points[-2][1]:
-        change = (float(price) / float(points[-2][1]) - 1.0) * 100.0
-    return float(price), date, "Yahoo Finance - Xetra (PPFB.DE)", change
+    errors = []
+    for host in ("query2.finance.yahoo.com", "query1.finance.yahoo.com"):
+        try:
+            payload = request(
+                f"https://{host}/v8/finance/chart/PPFB.DE",
+                params={"interval": "1d", "range": "10d", "events": "history"},
+            ).json()
+            result = payload["chart"]["result"][0]
+            points = [
+                (ts, close)
+                for ts, close in zip(result["timestamp"], result["indicators"]["quote"][0]["close"])
+                if close is not None
+            ]
+            if not points:
+                raise RuntimeError("Yahoo Finance returned no PPFB.DE closes")
+            timestamp, price = points[-1]
+            date = datetime.fromtimestamp(timestamp, TZ_XETRA).date().isoformat()
+            change = None
+            if len(points) >= 2 and points[-2][1]:
+                change = (float(price) / float(points[-2][1]) - 1.0) * 100.0
+            return float(price), date, "Yahoo Finance - Xetra (PPFB.DE)", change
+        except Exception as exc:
+            errors.append(f"{host}: {exc}")
+    raise RuntimeError(" | ".join(errors))
 
 
 def fetch_gold_xetra():
     errors = []
+    try:
+        return fetch_gold_goyax()
+    except Exception as exc:
+        errors.append(f"Goyax: {exc}")
+
     urls = [
         "https://es.marketscreener.com/cotizacion/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/cotizaciones/",
         "https://www.marketscreener.com/quote/etf/ISHARES-PHYSICAL-GOLD-ETC-124881157/quotes/",
@@ -289,6 +359,9 @@ def main():
             }
 
     data["updatedAt"] = datetime.now(TZ_MADRID).isoformat(timespec="seconds")
+    failed = [key for key, result in results.items() if result["status"] == "kept_after_error"]
+    if failed:
+        print("WARNING: prices not refreshed for: " + ", ".join(failed))
     save_prices(data)
     print(json.dumps({"updatedAt": data["updatedAt"], "assets": results}, ensure_ascii=False, indent=2))
 
