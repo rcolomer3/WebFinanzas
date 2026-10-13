@@ -49,20 +49,14 @@ def probe_fidelity_investing():
     urls = [
         "https://ca.investing.com/funds/ie00byx5nx33-historical-data",
         "https://za.investing.com/funds/ie00byx5nx33-historical-data",
-        "https://ng.investing.com/funds/ie00byx5nx33-historical-data",
         "https://uk.investing.com/funds/ie00byx5nx33-historical-data",
-        "https://es.investing.com/funds/ie00byx5nx33-historical-data",
     ]
     errors = []
     for url in urls:
         try:
             response = get(url)
             page = clean_text(response)
-            match = re.search(
-                r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:[.,][0-9]+)?)",
-                page,
-                flags=re.IGNORECASE,
-            )
+            match = re.search(r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:[.,][0-9]+)?)", page, flags=re.I)
             if not match:
                 raise RuntimeError("no dated NAV row")
             return match.group(1), parse_number(match.group(2)), url
@@ -72,76 +66,82 @@ def probe_fidelity_investing():
 
 
 def probe_fidelity_morningstar():
-    urls = [
-        "https://www.morningstarfunds.ie/ie/funds/snapshot/snapshot.aspx?id=F00001019E",
-        "https://www.morningstar.co.uk/uk/funds/snapshot/snapshot.aspx?id=F00001019E",
-    ]
-    errors = []
-    for url in urls:
-        try:
-            response = get(url)
-            page = clean_text(response)
-            print("MORNINGSTAR_SNIPPET", page[:1200])
-            patterns = [
-                r"NAV\s+(\d{1,2}/\d{1,2}/\d{4})\s*\|?\s*EUR\s*([0-9]+(?:[.,][0-9]+)?)",
-                r"NAV.*?(\d{1,2}/\d{1,2}/\d{4}).{0,80}?EUR\s*([0-9]+(?:[.,][0-9]+)?)",
-                r"NAV.*?EUR\s*([0-9]+(?:[.,][0-9]+)?).*?(\d{1,2}/\d{1,2}/\d{4})",
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, page, flags=re.IGNORECASE | re.DOTALL)
-                if match:
-                    a, b = match.groups()
-                    if "/" in a:
-                        return a, parse_number(b), url
-                    return b, parse_number(a), url
-            raise RuntimeError("NAV/date pattern not found")
-        except Exception as exc:
-            errors.append(f"{url}: {exc}")
-    raise RuntimeError(" | ".join(errors))
-
-
-def probe_gold_goyax():
-    url = "https://www.goyax.de/etcs/IE00B4ND3602/ishares-physical-metals-plc/"
+    url = "https://www.morningstarfunds.ie/ie/funds/snapshot/snapshot.aspx?id=F00001019E"
     response = get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    page = soup.get_text(" ", strip=True)
-    print("GOYAX_SNIPPET", page[:1600])
-    match = re.search(r"Xetra\s+([0-9]+(?:[.,][0-9]+)?)\s*EUR\s+(\d{1,2}:\d{2})", page, flags=re.IGNORECASE)
+    page = clean_text(response)
+    print("MORNINGSTAR_SNIPPET", page[:800])
+    match = re.search(r"NAV.*?(\d{1,2}/\d{1,2}/\d{4}).{0,100}?EUR\s*([0-9]+(?:[.,][0-9]+)?)", page, flags=re.I | re.S)
     if not match:
-        raise RuntimeError("Xetra row not found")
-    return parse_number(match.group(1)), match.group(2), url
+        raise RuntimeError("NAV/date pattern not found")
+    return match.group(1), parse_number(match.group(2)), url
 
 
-def probe_yahoo(host):
+def probe_fidelity_ft():
+    url = "https://markets.ft.com/data/funds/tearsheet/historical?s=IE00BYX5NX33:EUR"
+    response = get(url)
+    page = clean_text(response)
+    print("FT_SNIPPET", page[:1600])
+    patterns = [
+        r"(\d{1,2}/\d{1,2}/\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
+        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, page, flags=re.I)
+        if match:
+            return match.group(1), parse_number(match.group(2)), url
+    raise RuntimeError("dated NAV row not found")
+
+
+def yahoo_chart(symbol, host="query2.finance.yahoo.com"):
     response = get(
-        f"https://{host}/v8/finance/chart/PPFB.DE",
+        f"https://{host}/v8/finance/chart/{symbol}",
         params={"interval": "1d", "range": "10d", "events": "history"},
     )
     payload = response.json()
     result = payload["chart"]["result"][0]
-    points = [
-        (ts, close)
-        for ts, close in zip(result["timestamp"], result["indicators"]["quote"][0]["close"])
-        if close is not None
-    ]
+    points = [(ts, close) for ts, close in zip(result["timestamp"], result["indicators"]["quote"][0]["close"]) if close is not None]
     if not points:
         raise RuntimeError("no Yahoo closes")
     return points[-1]
 
 
+def probe_fidelity_ariva():
+    url = "https://www.ariva.de/fonds/fidelity-msci-world-index-fund-p-acc-eur"
+    response = get(url)
+    page = clean_text(response)
+    print("ARIVA_SNIPPET", page[:1400])
+    match = re.search(r"ISIN:\s*IE00BYX5NX33.{0,200}?([0-9]+,[0-9]+)\s*€", page, flags=re.I | re.S)
+    if not match:
+        raise RuntimeError("fund quote not found")
+    return parse_number(match.group(1)), url
+
+
+def probe_gold_goyax():
+    url = "https://www.goyax.de/etcs/IE00B4ND3602/ishares-physical-metals-plc/"
+    response = get(url)
+    page = clean_text(response)
+    match = re.search(r"Xetra\s+([0-9]+(?:[.,][0-9]+)?)\s*EUR\s+(\d{1,2}:\d{2})", page, flags=re.I)
+    if not match:
+        raise RuntimeError("Xetra row not found")
+    return parse_number(match.group(1)), match.group(2), url
+
+
 def main():
     checks = [
-        ("Fidelity Investing mirrors", probe_fidelity_investing),
+        ("Fidelity Investing", probe_fidelity_investing),
         ("Fidelity Morningstar", probe_fidelity_morningstar),
+        ("Fidelity FT Markets", probe_fidelity_ft),
+        ("Fidelity Yahoo fund", lambda: yahoo_chart("0P0001CLDK.F")),
+        ("Fidelity Yahoo ISIN Stuttgart", lambda: yahoo_chart("IE00BYX5NX33.SG")),
+        ("Fidelity Ariva", probe_fidelity_ariva),
         ("Gold Goyax Xetra", probe_gold_goyax),
-        ("Gold Yahoo query2", lambda: probe_yahoo("query2.finance.yahoo.com")),
-        ("Gold Yahoo query1", lambda: probe_yahoo("query1.finance.yahoo.com")),
+        ("Gold Yahoo query2", lambda: yahoo_chart("PPFB.DE")),
+        ("Gold Yahoo query1", lambda: yahoo_chart("PPFB.DE", "query1.finance.yahoo.com")),
     ]
     results = {}
     for name, fn in checks:
         results[name] = probe(name, fn)[0]
     print("SUMMARY", results)
-    # Diagnostic workflow: run every probe and keep the job successful so logs are complete.
 
 
 if __name__ == "__main__":
