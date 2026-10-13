@@ -80,8 +80,8 @@ def main():
         return
 
     price, price_date, source = fetched
-    if asset.get("priceDate") and price_date < asset["priceDate"]:
-        print(f"Gold source returned older date {price_date}; keeping {asset['priceDate']}")
+    if asset.get("priceDate") and price_date <= asset["priceDate"]:
+        print(f"Gold fallback date {price_date} is not newer; keeping {asset['priceDate']}")
         return
 
     asset["price"] = round(float(price), 8)
