@@ -1,147 +1,69 @@
 #!/usr/bin/env python3
-# Isolated network probe: never reads or writes prices.json.
+# Final isolated validation. This imports fetchers only and never calls update_prices.main().
 
-import re
-from datetime import datetime
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
-import requests
-from bs4 import BeautifulSoup
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+PRICES_FILE = ROOT / "prices.json"
+sys.path.insert(0, str(SCRIPT_DIR))
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-GB,en;q=0.9,es;q=0.8,de;q=0.7",
-    "Cache-Control": "no-cache",
-}
+from update_prices import fetch_fidelity, fetch_gold_xetra  # noqa: E402
 
-
-def get(url, *, params=None):
-    response = requests.get(url, params=params, headers=HEADERS, timeout=20)
-    print(f"HTTP {response.status_code} {response.url}")
-    response.raise_for_status()
-    return response
+TZ_MADRID = ZoneInfo("Europe/Madrid")
 
 
-def clean_text(response):
-    return BeautifulSoup(response.text, "html.parser").get_text(" ", strip=True)
-
-
-def parse_number(value):
-    value = value.replace("\xa0", "").replace("€", "").strip()
-    if "," in value and "." in value:
-        value = value.replace(".", "").replace(",", ".") if value.rfind(",") > value.rfind(".") else value.replace(",", "")
-    elif "," in value:
-        value = value.replace(",", ".")
-    return float(value)
-
-
-def probe(name, fn):
-    try:
-        result = fn()
-        print(f"RESULT {name}: OK {result}")
-        return True, result
-    except Exception as exc:
-        print(f"RESULT {name}: FAIL {type(exc).__name__}: {exc}")
-        return False, str(exc)
-
-
-def probe_fidelity_investing():
-    urls = [
-        "https://ca.investing.com/funds/ie00byx5nx33-historical-data",
-        "https://za.investing.com/funds/ie00byx5nx33-historical-data",
-        "https://uk.investing.com/funds/ie00byx5nx33-historical-data",
-    ]
-    errors = []
-    for url in urls:
-        try:
-            response = get(url)
-            page = clean_text(response)
-            match = re.search(r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:[.,][0-9]+)?)", page, flags=re.I)
-            if not match:
-                raise RuntimeError("no dated NAV row")
-            return match.group(1), parse_number(match.group(2)), url
-        except Exception as exc:
-            errors.append(f"{url}: {exc}")
-    raise RuntimeError(" | ".join(errors))
-
-
-def probe_fidelity_morningstar():
-    url = "https://www.morningstarfunds.ie/ie/funds/snapshot/snapshot.aspx?id=F00001019E"
-    response = get(url)
-    page = clean_text(response)
-    print("MORNINGSTAR_SNIPPET", page[:800])
-    match = re.search(r"NAV.*?(\d{1,2}/\d{1,2}/\d{4}).{0,100}?EUR\s*([0-9]+(?:[.,][0-9]+)?)", page, flags=re.I | re.S)
-    if not match:
-        raise RuntimeError("NAV/date pattern not found")
-    return match.group(1), parse_number(match.group(2)), url
-
-
-def probe_fidelity_ft():
-    url = "https://markets.ft.com/data/funds/tearsheet/historical?s=IE00BYX5NX33:EUR"
-    response = get(url)
-    page = clean_text(response)
-    print("FT_SNIPPET", page[:1600])
-    patterns = [
-        r"(\d{1,2}/\d{1,2}/\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
-        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})\s+([0-9]+(?:\.[0-9]+)?)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, page, flags=re.I)
-        if match:
-            return match.group(1), parse_number(match.group(2)), url
-    raise RuntimeError("dated NAV row not found")
-
-
-def yahoo_chart(symbol, host="query2.finance.yahoo.com"):
-    response = get(
-        f"https://{host}/v8/finance/chart/{symbol}",
-        params={"interval": "1d", "range": "10d", "events": "history"},
-    )
-    payload = response.json()
-    result = payload["chart"]["result"][0]
-    points = [(ts, close) for ts, close in zip(result["timestamp"], result["indicators"]["quote"][0]["close"]) if close is not None]
-    if not points:
-        raise RuntimeError("no Yahoo closes")
-    return points[-1]
-
-
-def probe_fidelity_ariva():
-    url = "https://www.ariva.de/fonds/fidelity-msci-world-index-fund-p-acc-eur"
-    response = get(url)
-    page = clean_text(response)
-    print("ARIVA_SNIPPET", page[:1400])
-    match = re.search(r"ISIN:\s*IE00BYX5NX33.{0,200}?([0-9]+,[0-9]+)\s*€", page, flags=re.I | re.S)
-    if not match:
-        raise RuntimeError("fund quote not found")
-    return parse_number(match.group(1)), url
-
-
-def probe_gold_goyax():
-    url = "https://www.goyax.de/etcs/IE00B4ND3602/ishares-physical-metals-plc/"
-    response = get(url)
-    page = clean_text(response)
-    match = re.search(r"Xetra\s+([0-9]+(?:[.,][0-9]+)?)\s*EUR\s+(\d{1,2}:\d{2})", page, flags=re.I)
-    if not match:
-        raise RuntimeError("Xetra row not found")
-    return parse_number(match.group(1)), match.group(2), url
+def validate_recent_date(value, *, max_age_days):
+    day = datetime.fromisoformat(value).date()
+    today = datetime.now(TZ_MADRID).date()
+    if day > today:
+        raise AssertionError(f"future price date: {value}")
+    if today - day > timedelta(days=max_age_days):
+        raise AssertionError(f"stale price date: {value}")
 
 
 def main():
-    checks = [
-        ("Fidelity Investing", probe_fidelity_investing),
-        ("Fidelity Morningstar", probe_fidelity_morningstar),
-        ("Fidelity FT Markets", probe_fidelity_ft),
-        ("Fidelity Yahoo fund", lambda: yahoo_chart("0P0001CLDK.F")),
-        ("Fidelity Yahoo ISIN Stuttgart", lambda: yahoo_chart("IE00BYX5NX33.SG")),
-        ("Fidelity Ariva", probe_fidelity_ariva),
-        ("Gold Goyax Xetra", probe_gold_goyax),
-        ("Gold Yahoo query2", lambda: yahoo_chart("PPFB.DE")),
-        ("Gold Yahoo query1", lambda: yahoo_chart("PPFB.DE", "query1.finance.yahoo.com")),
-    ]
-    results = {}
-    for name, fn in checks:
-        results[name] = probe(name, fn)[0]
-    print("SUMMARY", results)
+    before = PRICES_FILE.read_bytes()
+
+    fidelity = fetch_fidelity()
+    gold = fetch_gold_xetra()
+
+    after = PRICES_FILE.read_bytes()
+    if before != after:
+        raise AssertionError("prices.json changed during read-only source validation")
+
+    fidelity_price, fidelity_date, fidelity_source = fidelity[:3]
+    gold_price, gold_date, gold_source = gold[:3]
+
+    if not (10 < fidelity_price < 25):
+        raise AssertionError(f"implausible Fidelity NAV: {fidelity_price}")
+    validate_recent_date(fidelity_date, max_age_days=7)
+    if "NAV" not in fidelity_source:
+        raise AssertionError(f"Fidelity source is not identified as NAV: {fidelity_source}")
+
+    if not (40 < gold_price < 120):
+        raise AssertionError(f"implausible gold Xetra price: {gold_price}")
+    validate_recent_date(gold_date, max_age_days=4)
+    if "Xetra" not in gold_source:
+        raise AssertionError(f"Gold source is not identified as Xetra: {gold_source}")
+
+    print(json.dumps({
+        "pricesJsonUnchanged": True,
+        "Fidelity": {
+            "price": fidelity_price,
+            "priceDate": fidelity_date,
+            "source": fidelity_source,
+        },
+        "Gold": {
+            "price": gold_price,
+            "priceDate": gold_date,
+            "source": gold_source,
+        },
+    }, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
