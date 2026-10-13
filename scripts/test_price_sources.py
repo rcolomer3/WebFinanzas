@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Isolated network probe: never reads or writes prices.json.
 
 import re
 from datetime import datetime
