@@ -1,10 +1,10 @@
 {
-  "updatedAt": "2026-10-15T13:26:03+02:00",
+  "updatedAt": "2026-10-15T18:33:11+02:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
       "name": "Bitcoin",
-      "price": 72133.0,
+      "price": 73181.0,
       "priceDate": "2026-10-15",
       "source": "CoinGecko"
     },
@@ -22,9 +22,15 @@
     },
     "IE00B4ND3602": {
       "name": "iShares Physical Gold ETC",
-      "price": 71.84,
+      "price": 71.9,
       "priceDate": "2026-10-15",
       "source": "Goyax - Xetra"
+    },
+    "IE00BH65QP47": {
+      "name": "Vanguard Global Short-Term Bond Index Fund EUR Hedged Acc",
+      "price": 104.7046,
+      "priceDate": "2026-10-14",
+      "source": "Vanguard - NAV"
     }
   }
 }
