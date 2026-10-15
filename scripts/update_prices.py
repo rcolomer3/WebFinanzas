@@ -226,7 +226,7 @@ def fetch_vanguard():
 def fetch_vanguard_short_bond():
     official_urls = [
         "https://www.vanguard.co.uk/professional/product/fund/bond/9110/global-short-term-bond-index-fund-eur-hedged-acc",
-        "https://global.vanguard.com/de-de/investment-products/funds/bonds/9110/global-short-term-bond-index-fund-eur-hedged-acc",
+        "https://www.nl.vanguard/professional/product/fund/bond/9110/global-short-term-bond-index-fund-eur-hedged-acc",
     ]
     errors = []
     for url in official_urls:
@@ -377,9 +377,9 @@ def main():
             existing = data["assets"][key]
             results[key] = {
                 "status": "kept_after_error",
-                "price": existing["price"],
-                "priceDate": existing["priceDate"],
-                "source": existing["source"],
+                "price": existing.get("price"),
+                "priceDate": existing.get("priceDate"),
+                "source": existing.get("source"),
                 "error": str(exc),
             }
 
