@@ -223,6 +223,27 @@ def fetch_vanguard():
     raise RuntimeError(" | ".join(errors))
 
 
+def fetch_vanguard_short_bond():
+    official_urls = [
+        "https://www.vanguard.co.uk/professional/product/fund/bond/9110/global-short-term-bond-index-fund-eur-hedged-acc",
+        "https://www.nl.vanguard/professional/product/fund/bond/9110/global-short-term-bond-index-fund-eur-hedged-acc",
+    ]
+    errors = []
+    for url in official_urls:
+        try:
+            text = page_text(url)
+            # Only parse the historical NAV table, not summary statistics.
+            price, date = parse_vanguard_official(text)
+            if date > datetime.now(TZ_MADRID).date().isoformat():
+                raise ValueError("Future NAV date")
+            if not 50 < price < 200:
+                raise ValueError(f"Unexpected NAV for IE00BH65QP47: {price}")
+            return price, date, "Vanguard - NAV"
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+    raise RuntimeError(" | ".join(errors))
+
+
 def parse_goyax_gold(text):
     match = re.search(
         r"\bXetra\s+([0-9]+(?:[.,][0-9]+)?)\s*EUR\s+(\d{1,2}:\d{2}|\d{1,2}\.\d{1,2}\.)",
@@ -327,11 +348,15 @@ def fetch_gold_xetra():
 
 def main():
     data = load_prices()
+    data["assets"].setdefault("IE00BH65QP47", {
+        "name": "Vanguard Global Short-Term Bond Index Fund EUR Hedged Acc"
+    })
     results = {}
     fetchers = {
         "BTC": fetch_bitcoin,
         "IE00BYX5NX33": fetch_fidelity,
         "IE0031786696": fetch_vanguard,
+        "IE00BH65QP47": fetch_vanguard_short_bond,
         "IE00B4ND3602": fetch_gold_xetra,
     }
 
@@ -352,9 +377,9 @@ def main():
             existing = data["assets"][key]
             results[key] = {
                 "status": "kept_after_error",
-                "price": existing["price"],
-                "priceDate": existing["priceDate"],
-                "source": existing["source"],
+                "price": existing.get("price"),
+                "priceDate": existing.get("priceDate"),
+                "source": existing.get("source"),
                 "error": str(exc),
             }
 
