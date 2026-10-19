@@ -1,11 +1,11 @@
 {
-  "updatedAt": "2026-10-18T13:01:27+02:00",
+  "updatedAt": "2026-10-19T15:10:15+02:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
       "name": "Bitcoin",
-      "price": 72992.0,
-      "priceDate": "2026-10-18",
+      "price": 73594.0,
+      "priceDate": "2026-10-19",
       "source": "CoinGecko"
     },
     "IE00BYX5NX33": {
@@ -22,8 +22,8 @@
     },
     "IE00B4ND3602": {
       "name": "iShares Physical Gold ETC",
-      "price": 72.01,
-      "priceDate": "2026-10-16",
+      "price": 72.0,
+      "priceDate": "2026-10-19",
       "source": "Goyax - Xetra"
     },
     "IE00BH65QP47": {
