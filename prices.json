@@ -1,11 +1,11 @@
 {
-  "updatedAt": "2026-10-31T14:38:28+01:00",
+  "updatedAt": "2026-11-01T15:16:00+01:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
       "name": "Bitcoin",
-      "price": 69086.0,
-      "priceDate": "2026-10-31",
+      "price": 69577.0,
+      "priceDate": "2026-11-01",
       "source": "CoinGecko"
     },
     "IE00BYX5NX33": {
