@@ -1,17 +1,17 @@
 {
-  "updatedAt": "2026-11-22T16:16:05+01:00",
+  "updatedAt": "2026-11-23T20:13:23+01:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
       "name": "Bitcoin",
-      "price": 55448.0,
-      "priceDate": "2026-11-22",
+      "price": 56424.0,
+      "priceDate": "2026-11-23",
       "source": "CoinGecko"
     },
     "IE00BYX5NX33": {
       "name": "Fidelity MSCI World Index Fund EUR P Acc",
-      "price": 13.95,
-      "priceDate": "2026-11-19",
+      "price": 13.49,
+      "priceDate": "2026-11-20",
       "source": "FT Markets - NAV"
     },
     "IE0031786696": {
@@ -22,8 +22,8 @@
     },
     "IE00B4ND3602": {
       "name": "iShares Physical Gold ETC",
-      "price": 62.6,
-      "priceDate": "2026-11-20",
+      "price": 65.37,
+      "priceDate": "2026-11-23",
       "source": "Goyax - Xetra"
     },
     "IE00BH65QP47": {
