@@ -1,35 +1,35 @@
 {
-  "updatedAt": "2026-11-26T18:42:11+01:00",
+  "updatedAt": "2026-11-27T18:26:59+01:00",
   "currency": "EUR",
   "assets": {
     "BTC": {
       "name": "Bitcoin",
-      "price": 55062.0,
-      "priceDate": "2026-11-26",
+      "price": 54697.0,
+      "priceDate": "2026-11-27",
       "source": "CoinGecko"
     },
     "IE00BYX5NX33": {
       "name": "Fidelity MSCI World Index Fund EUR P Acc",
-      "price": 13.95,
-      "priceDate": "2026-11-25",
+      "price": 13.96,
+      "priceDate": "2026-11-26",
       "source": "FT Markets - NAV"
     },
     "IE0031786696": {
       "name": "Vanguard Emerging Markets Stock Index Fund EUR Acc",
-      "price": 274.5727,
-      "priceDate": "2026-11-25",
+      "price": 277.5321,
+      "priceDate": "2026-11-26",
       "source": "Vanguard - NAV"
     },
     "IE00B4ND3602": {
       "name": "iShares Physical Gold ETC",
-      "price": 63.13,
-      "priceDate": "2026-11-26",
+      "price": 64.34,
+      "priceDate": "2026-11-27",
       "source": "Goyax - Xetra"
     },
     "IE00BH65QP47": {
       "name": "Vanguard Global Short-Term Bond Index Fund EUR Hedged Acc",
-      "price": 105.4923,
-      "priceDate": "2026-11-25",
+      "price": 105.4648,
+      "priceDate": "2026-11-26",
       "source": "Vanguard - NAV"
     }
   }
